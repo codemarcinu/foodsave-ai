@@ -6,12 +6,12 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.agents.orchestrator import Orchestrator
-from backend.config import settings
-from backend.core import crud
-from backend.core.database import AsyncSessionLocal
-from backend.core.llm_client import llm_client
-from backend.models.shopping import Product, ShoppingTrip
+from src.backend.agents.orchestrator import Orchestrator
+from src.backend.config import settings
+from src.backend.core import crud
+from src.backend.core.database import AsyncSessionLocal
+from src.backend.core.llm_client import llm_client
+from src.backend.models.shopping import Product, ShoppingTrip
 
 # --- Funkcje pomocnicze, które już znamy ---
 

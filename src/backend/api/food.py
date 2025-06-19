@@ -1,24 +1,18 @@
-# w pliku backend/api/food.py
+# File: backend/api/food.py
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Ta funkcja z 'database.py' będzie dostarczać sesję do bazy danych
-from ..core.database import AsyncSessionLocal
-from ..schemas import shopping_schemas
-from ..services import shopping_service
+from src.backend.infrastructure.database.database import get_db
+from src.backend.schemas import shopping_schemas
+from src.backend.services import shopping_service
 
 router = APIRouter()
 
 
 # Funkcja-zależność (dependency), która tworzy i zamyka sesję dla każdego zapytania
-async def get_db():
-    session = AsyncSessionLocal()
-    try:
-        yield session
-    finally:
-        await session.close()
 
 
 @router.post(

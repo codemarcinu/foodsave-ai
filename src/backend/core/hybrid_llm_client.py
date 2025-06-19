@@ -94,37 +94,34 @@ class HybridLLMClient:
     def _init_model_configs(self) -> Dict[str, ModelConfig]:
         """Initialize model configurations"""
         return {
-            "gemma2:2b": ModelConfig(
-                name="gemma2:2b",
-                complexity_levels=[ModelComplexity.SIMPLE, ModelComplexity.STANDARD],
+            "gemma:2b": ModelConfig(
+                name="gemma:2b",
+                complexity_levels=[ModelComplexity.SIMPLE],
                 max_tokens=4096,
-                cost_per_token=0.01,  # Very low cost
-                priority=1,  # Higher priority for simple queries
-                concurrency_limit=20,  # Allow many concurrent requests
+                cost_per_token=0.01,
+                priority=1,
+                concurrency_limit=20,
             ),
-            "llama3:8b": ModelConfig(
-                name="llama3:8b",
-                complexity_levels=[ModelComplexity.STANDARD],
-                max_tokens=8192,
-                cost_per_token=0.05,
-                priority=2,
-                concurrency_limit=10,
-            ),
-            "gemma3:12b": ModelConfig(
-                name="gemma3:12b",
-                complexity_levels=[ModelComplexity.STANDARD, ModelComplexity.COMPLEX],
+            "gemma3:latest": ModelConfig(
+                name="gemma3:latest",
+                complexity_levels=[
+                    ModelComplexity.STANDARD,
+                    ModelComplexity.COMPLEX,
+                    ModelComplexity.CRITICAL,
+                ],
                 max_tokens=32768,
                 cost_per_token=0.10,
-                priority=3,
-                concurrency_limit=5,  # Limit concurrent requests for large model
+                priority=2,
+                concurrency_limit=5,
             ),
-            "llama3:70b": ModelConfig(
-                name="llama3:70b",
+            "SpeakLeash/bielik-11b-v2.3-instruct:Q8_0": ModelConfig(
+                name="SpeakLeash/bielik-11b-v2.3-instruct:Q8_0",
                 complexity_levels=[ModelComplexity.COMPLEX, ModelComplexity.CRITICAL],
                 max_tokens=32768,
-                cost_per_token=0.50,
-                priority=4,
-                concurrency_limit=2,  # Very limited concurrency for largest model
+                cost_per_token=0.15,
+                priority=3,
+                concurrency_limit=3,
+                description="Polish language specialized model",
             ),
         }
 

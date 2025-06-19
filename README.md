@@ -84,11 +84,47 @@ graph TD
 
 ## Technology Stack
 
-- **Backend**: Python, FastAPI, SQLAlchemy
+- **Backend**: Python 3.12+, FastAPI, SQLAlchemy
 - **Frontend**: Next.js, React, TypeScript, Tailwind CSS
 - **AI**: Ollama, LangChain, FAISS, Sentence Transformers
 - **Database**: SQLite (default), compatible with PostgreSQL
 - **DevOps**: Docker, Poetry
+- **Testing**: pytest, pytest-cov, pytest-asyncio, Locust
+- **Code Quality**: black, isort, flake8, ruff, mypy
+
+## Testing Approach
+
+The project uses a comprehensive testing strategy:
+
+### Test Types
+- **Unit Tests**: Test individual components in isolation (`tests/unit/`)
+- **Integration Tests**: Test API endpoints and component interactions (`tests/integration/`)
+- **E2E Tests**: Test complete workflows (`tests/e2e/`)
+- **Performance Tests**: Load testing with Locust (`locustfile.py`)
+
+### Running Tests
+```bash
+# Run all tests with coverage
+pytest --cov=src tests/ -v
+
+# Run specific test type
+pytest tests/unit/ -v
+pytest tests/integration/ -v
+
+# Run performance tests
+locust -f locustfile.py
+```
+
+### Test Coverage
+- Current coverage: ~85% (target: 90%)
+- Generate coverage report:
+  ```bash
+  pytest --cov=src --cov-report=html tests/
+  ```
+
+### Mocking Strategy
+- External services are mocked using unittest.mock
+- Database connections use test fixtures
 
 ## Setup & Installation
 
@@ -150,12 +186,60 @@ graph TD
 5.  **Set up Ollama:**
     Install Ollama from the [official website](https://ollama.com/) and pull the required models:
     ```bash
-    ollama pull gemma3:latest
-    ollama pull SpeakLeash/bielik-11b-v2.3-instruct:Q6_K
-    ollama pull nomic-embed-text
+    # Install Ollama
+    curl -fsSL https://ollama.com/install.sh | sh
+
+    # Pull required models (minimum 16GB RAM recommended)
+    ollama pull gemma3:latest  # ~5GB
+    ollama pull SpeakLeash/bielik-11b-v2.3-instruct:Q6_K  # ~7GB
+    ollama pull nomic-embed-text  # ~0.5GB
+
+    # Verify installation
+    ollama list
     ```
 
-    For GPU acceleration, refer to the [GPU Setup Guide](GPU_SETUP.md).
+    For GPU acceleration (recommended for better performance):
+    ```bash
+    # Install NVIDIA drivers and CUDA first
+    ./scripts/setup_nvidia_docker.sh
+
+    # Then run Ollama with GPU support
+    OLLAMA_GPU=1 ollama serve
+    ```
+
+    Common troubleshooting:
+    - If models fail to load, check available RAM (minimum 16GB recommended for best performance)
+    - For slow performance, try smaller models or enable GPU
+    - Use `ollama ps` to check running models
+    - Refer to the [GPU Setup Guide](GPU_SETUP.md) for advanced configuration
+    - Check logs with `journalctl -u ollama -f` (Linux) or Event Viewer (Windows)
+    - For CUDA errors, verify driver version with `nvidia-smi`
+    - For out-of-memory errors, try smaller models or reduce context window
+    - If models won't download, check network connectivity and storage space
+    - For persistent issues, try `ollama serve --verbose` for detailed logs
+
+### Model Requirements
+Different models have varying hardware requirements:
+
+| Model Name            | RAM Required | VRAM Required | Disk Space |
+|-----------------------|--------------|---------------|------------|
+| gemma3:latest         | 8GB          | 4GB           | 5GB        |
+| SpeakLeash/bielik-11b | 16GB         | 8GB           | 7GB        |
+| nomic-embed-text      | 4GB          | 2GB           | 0.5GB      |
+
+### Performance Optimization
+1. **GPU Acceleration**:
+   - Install NVIDIA drivers and CUDA toolkit
+   - Set `OLLAMA_GPU=1` environment variable
+   - Use `--gpu` flag when pulling models
+
+2. **Memory Management**:
+   - Limit concurrent models with `OLLAMA_MAX_LOADED_MODELS`
+   - Adjust context window size for memory-constrained systems
+
+3. **Network Optimization**:
+   - Use `OLLAMA_HOST` to bind to specific interface
+   - Enable compression with `OLLAMA_COMPRESSION=true`
 
 6.  **Initialize the Database:**
     ```bash
@@ -187,6 +271,52 @@ graph TD
 
 The application will be available at `http://localhost:3000`.
 
+## API Documentation
+
+The backend API is documented using OpenAPI/Swagger. After starting the backend server, access the interactive documentation at:
+
+```
+http://localhost:8000/docs
+```
+
+This provides:
+- Full API endpoint documentation
+- Interactive testing capabilities
+- Request/response schemas
+- Authentication requirements
+
+## Contribution Guidelines
+
+We welcome contributions! Please follow these guidelines:
+
+1. **Branching Strategy**:
+   - Create feature branches from `main`
+   - Use descriptive branch names (e.g., `feature/add-recipe-search`)
+
+2. **Code Style**:
+   - Follow PEP 8 for Python
+   - Use TypeScript best practices for frontend
+   - Run formatters before committing:
+     ```bash
+     black .
+     isort .
+     ```
+
+3. **Testing**:
+   - Add tests for new features
+   - Maintain test coverage
+   - Run all tests before submitting PRs
+
+4. **Pull Requests**:
+   - Include clear description of changes
+   - Reference related issues
+   - Request reviews from maintainers
+
+5. **Issue Reporting**:
+   - Use clear, descriptive titles
+   - Include steps to reproduce
+   - Specify expected vs actual behavior
+
 ## Project Status
 
 ### Current Implementation
@@ -200,15 +330,24 @@ The application will be available at `http://localhost:3000`.
 - ✅ Advanced conversation state management
 - ✅ Enhanced RAG for superior Q&A capabilities
 - ✅ Improved vector storage for knowledge retrieval
-
-### Upcoming Features
 - ✅ Advanced analytics for shopping patterns
-- ❌ Budget tracking and visualization
 - ✅ Automated categorization of products
 - ✅ Meal planning and shopping list generation
-- ❌ User authentication system
-- ❌ Mobile-friendly responsive design
 - ✅ Advanced memory management system
+- ✅ Basic budget tracking functionality (recently added)
+
+### Upcoming Features
+- ❌ Enhanced budget visualization
+- ❌ Enhanced API versioning (v2)
+- ❌ Improved error handling standardization
+- ❌ Comprehensive test coverage (>90%)
+- ❌ Mobile-friendly interface (in progress)
+
+### Note
+This is a personal application designed for single-user use on desktop/laptop computers. No mobile support or authentication system is planned as it's intended for individual computer use only.
+
+### Refactoring Progress
+See [REFACTORING_PLAN.md](REFACTORING_PLAN.md) for detailed refactoring roadmap and progress.
 
 ## Development Tools
 

@@ -3,7 +3,8 @@ import hashlib
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -17,7 +18,7 @@ except ImportError:
     FAISS_AVAILABLE = False
     logging.warning("FAISS not available, falling back to simple vector store")
 
-from ..core.llm_client import llm_client
+from .llm_client import llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -38,20 +39,25 @@ class DocumentChunk:
         # Generate unique ID based on content if not provided
         self.chunk_id = chunk_id or hashlib.md5(text.encode()).hexdigest()
         self.created_at = datetime.now()
+        self.last_accessed = datetime.now()  # Track last access time
         # Calculate text hash for deduplication
         self.text_hash = self._semantic_hash(text)
 
     def _semantic_hash(self, text: str) -> str:
-        """Create a simplified representation for semantic deduplication"""
-        # Remove punctuation, lowercase, and normalize whitespace
+        """Create a robust hash of normalized document content for deduplication"""
+        # Normalize text: lowercase, remove punctuation, normalize whitespace
         import re
+        import string
 
-        simplified = re.sub(r"[^\w\s]", "", text.lower())
-        simplified = re.sub(r"\s+", " ", simplified).strip()
-        # Take only first 100 chars for long texts
-        if len(simplified) > 100:
-            simplified = simplified[:100]
-        return hashlib.md5(simplified.encode()).hexdigest()
+        # Remove all punctuation except apostrophes (for contractions)
+        translator = str.maketrans("", "", string.punctuation.replace("'", ""))
+        normalized = text.lower().translate(translator)
+
+        # Normalize whitespace and remove extra spaces
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+
+        # Hash the entire normalized content
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
     def is_similar_to(self, other: "DocumentChunk", threshold: float = 0.8) -> bool:
         """Check if this chunk is semantically similar to another"""
@@ -61,7 +67,7 @@ class DocumentChunk:
 
         # If embeddings available, compare semantic similarity
         if self.embedding and other.embedding:
-            similarity = cosine_similarity(self.embedding, other.embedding)
+            similarity = self._cosine_similarity(self.embedding, other.embedding)
             return similarity > threshold
 
         return False
@@ -177,6 +183,9 @@ class EnhancedVectorStore:
         self.chunk_ids_to_index: Dict[str, int] = (
             {}
         )  # Maps chunk IDs to index positions
+        self._lock = asyncio.Lock()  # Async lock for thread safety
+        self.max_chunks = 10000  # Maximum chunks before cleanup
+        self.cleanup_threshold = 0.8  # Cleanup when reaching 80% of max_chunks
 
         # Initialize FAISS index if available
         if FAISS_AVAILABLE:
@@ -215,24 +224,26 @@ class EnhancedVectorStore:
                     break
 
             if not is_duplicate:
-                # Generate embedding if needed
+                # Generate embedding if needed (outside lock since it's async)
                 if auto_embed and not chunk.embedding:
                     chunk.embedding = await llm_client.embed(
                         model="gemma3:12b", text=chunk.text
                     )
 
-                # Add to store
-                self.chunks.append(chunk)
-                self.chunk_ids_to_index[chunk.chunk_id] = len(self.chunks) - 1
-                chunk_ids.append(chunk.chunk_id)
+                # Protect critical section with lock
+                async with self._lock:
+                    # Add to store
+                    self.chunks.append(chunk)
+                    self.chunk_ids_to_index[chunk.chunk_id] = len(self.chunks) - 1
+                    chunk_ids.append(chunk.chunk_id)
 
-                # Add to FAISS index if available
-                if self.use_faiss and chunk.embedding:
-                    embedding_np = np.array([chunk.embedding], dtype=np.float32)
-                    faiss.normalize_L2(embedding_np)
-                    self.index.add(embedding_np)
+                    # Add to FAISS index if available
+                    if self.use_faiss and chunk.embedding:
+                        embedding_np = np.array([chunk.embedding], dtype=np.float32)
+                        faiss.normalize_L2(embedding_np)
+                        self.index.add(embedding_np)
 
-                self.chunks_since_save += 1
+                    self.chunks_since_save += 1
 
         # Auto-save if many changes accumulated
         if self.persist_dir and self.chunks_since_save > 50:
@@ -278,9 +289,12 @@ class EnhancedVectorStore:
             # Use FAISS for fast retrieval (get more results for filtering)
             query_vector = np.array([query_embedding], dtype=np.float32)
             faiss.normalize_L2(query_vector)
-            D, result_indices = self.index.search(
-                query_vector, min(k * 3, len(self.chunks))
-            )
+
+            # Protect FAISS search with lock
+            async with self._lock:
+                D, result_indices = self.index.search(
+                    query_vector, min(k * 3, len(self.chunks))
+                )
 
             # Get candidates
             candidates = []
@@ -363,6 +377,11 @@ class EnhancedVectorStore:
         if not self.persist_dir:
             return
 
+        # Check if we need to cleanup before saving
+        if len(self.chunks) > self.max_chunks * self.cleanup_threshold:
+            removed = await self.cleanup_old_chunks()
+            logger.info(f"Pre-save cleanup removed {removed} old chunks")
+
         # Create directory if it doesn't exist
         os.makedirs(self.persist_dir, exist_ok=True)
 
@@ -388,6 +407,41 @@ class EnhancedVectorStore:
         self.last_save_time = datetime.now()
         self.chunks_since_save = 0
         logger.info(f"Vector index saved to {self.persist_dir}")
+
+    @lru_cache(maxsize=1000)
+    def get_chunk(self, chunk_id: str) -> Optional[DocumentChunk]:
+        """Get a chunk by ID with LRU caching"""
+        if chunk_id not in self.chunk_ids_to_index:
+            return None
+        chunk = self.chunks[self.chunk_ids_to_index[chunk_id]]
+        chunk.last_accessed = datetime.now()  # Update access time
+        return chunk
+
+    async def cleanup_old_chunks(self, max_age_days: int = 30) -> int:
+        """Remove chunks not accessed in specified days"""
+        cutoff = datetime.now() - timedelta(days=max_age_days)
+        removed_count = 0
+
+        async with self._lock:
+            # Filter chunks to keep
+            new_chunks = []
+            new_mapping = {}
+            for i, chunk in enumerate(self.chunks):
+                if chunk.last_accessed >= cutoff:
+                    new_mapping[chunk.chunk_id] = len(new_chunks)
+                    new_chunks.append(chunk)
+                else:
+                    removed_count += 1
+
+            # Update store
+            self.chunks = new_chunks
+            self.chunk_ids_to_index = new_mapping
+
+            # Clear cache to remove deleted chunks
+            self.get_chunk.cache_clear()
+
+        logger.info(f"Cleaned up {removed_count} old chunks")
+        return removed_count
 
     def load_index(self, directory: str) -> None:
         """Load index and chunks from directory"""
@@ -425,7 +479,7 @@ class AsyncDocumentLoader:
         self.vector_store = vector_store
         self.loading_task = None
         self._stop_event = asyncio.Event()
-        self.last_modified_times: dict[str, float] = {}
+        self.last_modified_times: Dict[str, float] = {}
 
     async def load_directory(
         self,
@@ -500,7 +554,7 @@ class AsyncDocumentLoader:
         self._stop_event.clear()
 
         # Track last modified times
-        file_mod_times: Dict[str, float] = {}
+        self.last_modified_times: Dict[str, float] = {}
 
         async def _indexing_task():
             while not self._stop_event.is_set():
@@ -578,3 +632,7 @@ class AsyncDocumentLoader:
                     logger.error(f"Error in incremental indexing: {e}")
                     # Wait before retrying
                     await asyncio.sleep(60)
+
+
+# Create a global instance of EnhancedVectorStore
+enhanced_vector_store = EnhancedVectorStore()

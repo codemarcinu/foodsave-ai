@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from backend.agents.tools.tools import extract_entities, recognize_intent
+from src.backend.agents.tools.tools import extract_entities, recognize_intent
 
 
 @pytest.mark.asyncio

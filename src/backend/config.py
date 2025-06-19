@@ -25,7 +25,10 @@ class Settings(BaseSettings):
     DEFAULT_EMBEDDING_MODEL: str = "nomic-embed-text:latest"
 
     # Konfiguracja bazy danych
-    DATABASE_URL: str = "sqlite+aiosqlite:///./data/db/shopping.db"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./data/foodsave.db"
+
+    # API key for LLM service
+    LLM_API_KEY: str = ""
 
     # Konfiguracja Tesseract OCR
     TESSDATA_PREFIX: str = "/usr/share/tesseract-ocr/5/"

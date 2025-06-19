@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession  # type: ignore
 
-# Importujemy instancję orchestratora
-from ..agents.orchestrator import IntentType, Orchestrator
-from .food import get_db
+# Import orchestrator instance
+from src.backend.agents.orchestrator import IntentType, Orchestrator
+from src.backend.api.food import get_db
 
 router = APIRouter()
 

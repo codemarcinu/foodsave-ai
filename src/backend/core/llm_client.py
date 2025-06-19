@@ -239,3 +239,4 @@ class EnhancedLLMClient:
 
 # Create a global instance
 llm_client = EnhancedLLMClient()
+LLMClient = EnhancedLLMClient  # Alias for backwards compatibility

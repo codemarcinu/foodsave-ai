@@ -3,46 +3,76 @@ from typing import Any, AsyncGenerator, Dict, List
 
 import httpx
 
-from backend.agents.base_agent import AgentResponse, BaseAgent
+from backend.agents.base_agent import AgentResponse
+from backend.agents.enhanced_base_agent import ImprovedBaseAgent
 from backend.core.llm_client import llm_client
 
 logger = logging.getLogger(__name__)
 
 
-class SearchAgent(BaseAgent):
+class SearchAgent(ImprovedBaseAgent):
     """Agent that performs web searches using DuckDuckGo"""
 
-    def __init__(self, name: str = "SearchAgent"):
-        super().__init__(name)
+    def __init__(
+        self,
+        name: str = "SearchAgent",
+        error_handler=None,
+        fallback_manager=None,
+        alert_service=None,
+    ):
+        super().__init__(
+            name=name,
+            error_handler=error_handler,
+            fallback_manager=fallback_manager,
+            alert_service=alert_service,
+        )
         self.search_url = "https://api.duckduckgo.com/"
 
     async def process(self, input_data: Any) -> AgentResponse:
         """Process a search request and return formatted results"""
-        if isinstance(input_data, dict):
+        if not isinstance(input_data, dict):
+            return AgentResponse(
+                success=False,
+                error="Nieprawidłowy format danych wejściowych.",
+                text="Przepraszam, nie mogłem przetworzyć tego zapytania.",
+            )
+
+        try:
+            query_value = input_data.get("query", "")
+            if not isinstance(query_value, str):
+                return AgentResponse(
+                    success=False,
+                    error="Nieprawidłowy typ zapytania - oczekiwano tekstu.",
+                    text="Proszę podać zapytanie w formie tekstowej.",
+                )
+
+            query = query_value.strip()
+            model = input_data.get(
+                "model", "SpeakLeash/bielik-11b-v2.3-instruct:Q8_0"
+            )  # Default model
+
+            if not query:
+                return AgentResponse(
+                    success=False,
+                    error="Brak zapytania wyszukiwania.",
+                    text="Proszę podać zapytanie wyszukiwania.",
+                )
+
+            # Get search results
+            search_results = await self._perform_search(query)
+            if not search_results:
+
+                async def empty_stream():
+                    if False:
+                        yield
+
+                return AgentResponse(
+                    success=True,
+                    text=f"Brak wyników dla zapytania: {query}",
+                    text_stream=empty_stream(),
+                )
+
             try:
-                query = input_data.get("query", "")
-                model = input_data.get("model", "gemma3:12b")  # Default model
-                if not query:
-                    return AgentResponse(
-                        success=False,
-                        error="Brak zapytania wyszukiwania.",
-                        text="Proszę podać zapytanie wyszukiwania.",
-                    )
-
-                # Get search results
-                search_results = await self._perform_search(query)
-                if not search_results:
-
-                    async def empty_stream():
-                        if False:
-                            yield
-
-                    return AgentResponse(
-                        success=True,
-                        text=f"Brak wyników dla zapytania: {query}",
-                        text_stream=empty_stream(),
-                    )
-
                 # Format search results using LLM
                 response_stream = self._format_search_results(
                     query, search_results, model
@@ -55,18 +85,19 @@ class SearchAgent(BaseAgent):
                     message=f"Wyniki wyszukiwania dla: {query}",
                 )
             except Exception as e:
-                logger.error(f"Error processing search request: {e}")
+                logger.error(f"Error formatting search results: {e}")
                 return AgentResponse(
                     success=False,
-                    error=f"Wystąpił błąd podczas przetwarzania zapytania: {str(e)}",
-                    text="Przepraszam, wystąpił problem z wykonaniem wyszukiwania.",
+                    error=f"Błąd formatowania wyników wyszukiwania: {str(e)}",
+                    text="Przepraszam, wystąpił problem z formatowaniem wyników wyszukiwania.",
                 )
-
-        return AgentResponse(
-            success=False,
-            error="Nieprawidłowy format danych wejściowych.",
-            text="Przepraszam, nie mogłem przetworzyć tego zapytania.",
-        )
+        except Exception as e:
+            logger.error(f"Error processing search request: {e}")
+            return AgentResponse(
+                success=False,
+                error=f"Wystąpił błąd podczas przetwarzania zapytania: {str(e)}",
+                text="Przepraszam, wystąpił problem z wykonaniem wyszukiwania.",
+            )
 
     async def _perform_search(self, query: str) -> List[Dict[str, str]]:
         """Perform a search using DuckDuckGo API"""
@@ -185,7 +216,8 @@ class SearchAgent(BaseAgent):
                 f"informacje z wyników i podaj źródła (URL):\n\n{results_summary}"
             )
 
-            async for chunk in llm_client.generate_stream(
+            # Call LLM with streaming
+            response = await llm_client.chat(
                 model=model,
                 messages=[
                     {
@@ -194,17 +226,13 @@ class SearchAgent(BaseAgent):
                     },
                     {"role": "user", "content": prompt},
                 ],
-            ):
+                stream=True,
+            )
+
+            # Stream the response chunks
+            async for chunk in response:
                 yield chunk["message"]["content"]
 
         except Exception as e:
             logger.error(f"Error formatting search results: {e}")
-
-            # Simple fallback format if LLM fails
-            formatted_result = f"Wyniki wyszukiwania dla: {query}\n\n"
-            for i, result in enumerate(results, 1):
-                formatted_result += f"{i}. {result.get('title', 'Brak tytułu')}\n"
-                formatted_result += f"   {result.get('url', '')}\n"
-                formatted_result += f"   {result.get('snippet', 'Brak opisu')}\n\n"
-
-            yield formatted_result
+            raise  # Re-raise the exception to be handled in process()

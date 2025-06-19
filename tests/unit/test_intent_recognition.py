@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 import pytest
 
-from backend.agents.tools.tools import recognize_intent
+from src.backend.agents.tools.tools import recognize_intent
 
 # Ladowanie danych testowych bezposrednio z pliku JSON
 TEST_DATA_PATH = os.path.join(

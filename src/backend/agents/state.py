@@ -1,7 +1,28 @@
 # Skopiuj i wklej ten kod jako całą zawartość pliku state.py
 
 from dataclasses import dataclass, field
+from enum import Enum, auto
 from typing import Any, Dict, List, Optional
+
+
+class AgentStatus(Enum):
+    """Status of an agent"""
+
+    IDLE = auto()
+    PROCESSING = auto()
+    WAITING_FOR_INPUT = auto()
+    ERROR = auto()
+
+
+@dataclass
+class AgentState:
+    """Represents the state of an individual agent"""
+
+    name: str
+    status: AgentStatus = AgentStatus.IDLE
+    last_activity: float = 0.0  # timestamp
+    error_count: int = 0
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

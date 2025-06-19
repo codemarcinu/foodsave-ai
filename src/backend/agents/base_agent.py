@@ -9,6 +9,8 @@ from typing import Any, AsyncGenerator, Dict, Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
+from ..core.llm_client import llm_client
+
 T = TypeVar("T", bound=BaseModel)
 logger = logging.getLogger(__name__)
 
@@ -77,8 +79,6 @@ class BaseAgent(ABC):
         self, model: str, messages: List[Dict[str, str]]
     ) -> AsyncGenerator[str, None]:
         """Stream LLM response with basic error handling"""
-        from ..core.llm_client import llm_client
-
         try:
             async for chunk in llm_client.chat(
                 model=model, messages=messages, stream=True

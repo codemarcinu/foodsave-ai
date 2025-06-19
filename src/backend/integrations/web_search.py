@@ -422,5 +422,25 @@ class WebSearchClient:
         await self.client.aclose()
 
 
-# Singleton instance
+class WebSearch:
+    """Main interface for web search functionality"""
+
+    def __init__(self, client: Optional[WebSearchClient] = None):
+        self.client = client or WebSearchClient()
+
+    async def search(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """Perform a web search and return simplified results"""
+        response = await self.client.search(query)
+        return [
+            {"title": r.title, "url": r.url, "snippet": r.snippet, "source": r.source}
+            for r in response.results[:max_results]
+        ]
+
+    async def close(self) -> None:
+        """Close underlying client"""
+        await self.client.close()
+
+
+# Singleton instances
 web_search_client = WebSearchClient()
+web_search = WebSearch(web_search_client)

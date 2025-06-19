@@ -1,10 +1,24 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, validator
 
 from backend.agents.base_agent import AgentResponse, BaseAgent
 from backend.agents.tools.tools import get_available_products_from_pantry
 from backend.core.llm_client import llm_client
+
+
+class ChefAgentInput(BaseModel):
+    """Input model for ChefAgent"""
+
+    ingredients: List[str] = Field(
+        ..., min_items=1, description="List of available ingredients"
+    )
+    dietary_restrictions: Optional[str] = Field(
+        None, description="Dietary restrictions"
+    )
+    model: Optional[str] = Field(
+        "SpeakLeash/bielik-11b-v2.3-instruct:Q8_0", description="LLM model to use"
+    )
 
 
 class RecipeSuggestion(BaseModel):
@@ -21,19 +35,78 @@ class ChefAgent(BaseAgent):
         super().__init__(name)
 
     async def process(self, input_data: Any) -> AgentResponse:
-        """Main processing method - delegates to generate_recipe_idea"""
-        # Check if input_data is a dict with db and model
-        if isinstance(input_data, dict) and "db" in input_data:
-            db = input_data.get("db")
-            model = input_data.get(
-                "model", "llama3"
-            )  # Default to llama3 if not specified
-            return await self.generate_recipe_idea(db, model)
-        # For backwards compatibility
-        return await self.generate_recipe_idea(input_data)
+        """Main processing method - validates input and generates recipe"""
+        try:
+            # Validate input
+            validated_input = ChefAgentInput.parse_obj(input_data)
+
+            # Generate recipe
+            return await self._generate_recipe(
+                ingredients=validated_input.ingredients,
+                dietary_restrictions=validated_input.dietary_restrictions,
+                model=validated_input.model,
+            )
+        except Exception as e:
+            return AgentResponse(
+                success=False,
+                error=str(e),
+                text=f"Przepraszam, wystąpił błąd: {str(e)}",
+            )
+
+    async def _generate_recipe(
+        self,
+        ingredients: List[str],
+        dietary_restrictions: Optional[str] = None,
+        model: str = "SpeakLeash/bielik-11b-v2.3-instruct:Q8_0",
+    ) -> AgentResponse:
+        """Generate recipe from given ingredients"""
+        if not ingredients:
+            return AgentResponse(
+                success=False,
+                error="No ingredients provided",
+                text="Proszę podać składniki",
+            )
+
+        # Prepare prompt
+        prompt = (
+            "Mam następujące składniki:\n"
+            f"{', '.join(ingredients)}\n\n"
+            "Proszę zaproponuj prosty przepis wykorzystujący te składniki."
+        )
+
+        if dietary_restrictions:
+            prompt += f"\n\nUwzględnij następujące ograniczenia dietetyczne: {dietary_restrictions}"
+
+        async def recipe_generator():
+            try:
+                # Call LLM with streaming
+                response = await llm_client.chat(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": "Jesteś pomocnym szefem kuchni."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    stream=True,
+                )
+
+                # Stream the response chunks
+                full_response = ""
+                async for chunk in response:
+                    content = chunk["message"]["content"]
+                    full_response += content
+                    yield content
+
+            except Exception as e:
+                yield f"Przepraszam, wystąpił błąd: {str(e)}"
+
+        return AgentResponse(
+            success=True,
+            text_stream=recipe_generator(),
+            message="Recipe generation started",
+        )
 
     async def generate_recipe_idea(
-        self, db: Any, model: str = "llama3"
+        self, db: Any, model: str = "SpeakLeash/bielik-11b-v2.3-instruct:Q8_0"
     ) -> AgentResponse:
         """
         Generates recipe ideas based on available pantry items.
